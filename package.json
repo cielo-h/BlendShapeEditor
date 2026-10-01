@@ -1,7 +1,7 @@
 {
   "name": "vpm.cielo-h.blendshapeeditor",
   "displayName": "BlendShapeEditor",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "unity": "2019.4",
   "description": "シーン内に存在するオブジェクトのBlendShapesを一覧で表示/設定するツール",
   "author": {

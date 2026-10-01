@@ -36,7 +36,10 @@ public partial class VRCBlendShapeEditor : EditorWindow
         return path;
     }
 
-    private List<BlendShapeData> GetFilteredBlendShapes(List<BlendShapeData> blendShapes)
+    private bool freezeFilter = false;
+    private readonly Dictionary<List<BlendShapeData>, List<BlendShapeData>> frozenFilterCache = new();
+
+    private List<BlendShapeData> GetFilteredBlendShapesRaw(List<BlendShapeData> blendShapes)
     {
         return blendShapes.Where(bs =>
         {
@@ -73,6 +76,19 @@ public partial class VRCBlendShapeEditor : EditorWindow
         }).ToList();
     }
 
+    private List<BlendShapeData> GetFilteredBlendShapes(List<BlendShapeData> blendShapes)
+    {
+        if (!freezeFilter)
+            return GetFilteredBlendShapesRaw(blendShapes);
+
+        if (!frozenFilterCache.TryGetValue(blendShapes, out var snapshot))
+        {
+            snapshot = GetFilteredBlendShapesRaw(blendShapes);
+            frozenFilterCache[blendShapes] = snapshot;
+        }
+        return snapshot;
+    }
+
     private void SelectAllVisible(bool selected)
     {
         if (blendShapeCache == null) return;
@@ -99,5 +115,20 @@ public partial class VRCBlendShapeEditor : EditorWindow
             count += kvp.Value.Count(bs => bs.isSelected);
         }
         return count;
+    }
+
+    private bool? GetMeshSelectionState(List<BlendShapeData> filtered)
+    {
+        if (filtered.Count == 0) return false;
+        int selected = filtered.Count(bs => bs.isSelected);
+        if (selected == 0) return false;
+        if (selected == filtered.Count) return true;
+        return null;
+    }
+
+    private void SetMeshSelection(List<BlendShapeData> filtered, bool value)
+    {
+        foreach (var bs in filtered)
+            bs.isSelected = value;
     }
 }

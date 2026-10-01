@@ -19,11 +19,15 @@ public partial class VRCBlendShapeEditor : EditorWindow
     private bool linkVisibleShapes = false;
     private bool copyOnClickLabel = true;
     private bool showSelectionCheckboxes = false;
+    private bool followLiveValues = true;
+    private bool isEditingSlider = false;
+    private bool showToggleMenuSettings = false;
 
     private const string AvatarStoreKey = "AvatarInstanceID";
 
     private void OnEnable()
     {
+        followLiveValues = SessionState.GetBool(GetSessionKey(nameof(followLiveValues)), true);
         valueFilterMode = (ValueFilterMode)SessionState.GetInt(GetSessionKey(nameof(valueFilterMode)), 0);
         filterValue = SessionState.GetFloat(GetSessionKey(nameof(filterValue)), 0f);
         groupByMesh = SessionState.GetBool(GetSessionKey(nameof(groupByMesh)), true);
@@ -32,6 +36,7 @@ public partial class VRCBlendShapeEditor : EditorWindow
         linkVisibleShapes = SessionState.GetBool(GetSessionKey(nameof(linkVisibleShapes)), false);
         copyOnClickLabel = SessionState.GetBool(GetSessionKey(nameof(copyOnClickLabel)), true);
         showSelectionCheckboxes = SessionState.GetBool(GetSessionKey(nameof(showSelectionCheckboxes)), false);
+        showToggleMenuSettings = SessionState.GetBool(GetSessionKey(nameof(showToggleMenuSettings)), false);
         searchFilter = SessionState.GetString(GetSessionKey(nameof(searchFilter)), "");
         float scrollX = SessionState.GetFloat(GetSessionKey("ScrollX"), 0f);
         float scrollY = SessionState.GetFloat(GetSessionKey("ScrollY"), 0f);
@@ -43,10 +48,13 @@ public partial class VRCBlendShapeEditor : EditorWindow
         }
 
         Undo.undoRedoPerformed += OnUndoRedo;
+        EditorApplication.update += OnEditorUpdate;
+        EditorApplication.playModeStateChanged += OnPlayModeChanged;
     }
 
     private void OnDisable()
     {
+        SessionState.SetBool(GetSessionKey(nameof(followLiveValues)), followLiveValues);
         SessionState.SetInt(GetSessionKey(nameof(valueFilterMode)), (int)valueFilterMode);
         SessionState.SetFloat(GetSessionKey(nameof(filterValue)), filterValue);
         SessionState.SetBool(GetSessionKey(nameof(groupByMesh)), groupByMesh);
@@ -55,6 +63,7 @@ public partial class VRCBlendShapeEditor : EditorWindow
         SessionState.SetBool(GetSessionKey(nameof(linkVisibleShapes)), linkVisibleShapes);
         SessionState.SetBool(GetSessionKey(nameof(copyOnClickLabel)), copyOnClickLabel);
         SessionState.SetBool(GetSessionKey(nameof(showSelectionCheckboxes)), showSelectionCheckboxes);
+        SessionState.SetBool(GetSessionKey(nameof(showToggleMenuSettings)), showToggleMenuSettings);
         SessionState.SetString(GetSessionKey(nameof(searchFilter)), searchFilter);
         SessionState.SetFloat(GetSessionKey("ScrollX"), scrollPosition.x);
         SessionState.SetFloat(GetSessionKey("ScrollY"), scrollPosition.y);
@@ -69,10 +78,14 @@ public partial class VRCBlendShapeEditor : EditorWindow
         }
 
         Undo.undoRedoPerformed -= OnUndoRedo;
+        Undo.undoRedoPerformed -= OnUndoRedo;
+        EditorApplication.update -= OnEditorUpdate;
+        EditorApplication.playModeStateChanged -= OnPlayModeChanged;
     }
 
     private void RefreshBlendShapes()
     {
+        frozenFilterCache.Clear();
         blendShapeCache = new Dictionary<SkinnedMeshRenderer, List<BlendShapeData>>();
         foldoutStates ??= new Dictionary<SkinnedMeshRenderer, bool>();
 
@@ -171,25 +184,53 @@ public partial class VRCBlendShapeEditor : EditorWindow
         Repaint();
     }
 
+    private void OnEditorUpdate()
+    {
+        // 再生中は常に追従。編集モードでは followLiveValues に従う
+        if (!Application.isPlaying && !followLiveValues) return;
+        if (isEditingSlider) return; // スライダー操作中は読み戻さない
+
+        if (RefreshBlendShapeValues())
+            Repaint();
+    }
+
+    private void OnPlayModeChanged(PlayModeStateChange state)
+    {
+        if (state == PlayModeStateChange.EnteredPlayMode || state == PlayModeStateChange.EnteredEditMode)
+        {
+            // 破棄済みの参照になるので取り直す
+            if (targetAvatar == null)
+                targetAvatar = FindObjectOfType<VRC.SDK3.Avatars.Components.VRCAvatarDescriptor>()?.gameObject;
+
+            RefreshBlendShapes();
+            Repaint();
+        }
+    }
+
     private void OnFocus() => RefreshBlendShapeValues();
 
-    private void RefreshBlendShapeValues()
+    private bool RefreshBlendShapeValues()
     {
-        if (targetAvatar != null && blendShapeCache != null)
+        if (targetAvatar == null || blendShapeCache == null) return false;
+
+        bool changed = false;
+        foreach (var kvp in blendShapeCache)
         {
-            foreach (var kvp in blendShapeCache)
+            var smr = kvp.Key;
+            if (smr == null) continue;
+
+            var blendShapes = kvp.Value;
+            for (int i = 0; i < blendShapes.Count; i++)
             {
-                var smr = kvp.Key;
-                if (smr == null) continue; // nullチェック
-
-                var blendShapes = kvp.Value;
-
-                for (int i = 0; i < blendShapes.Count; i++)
+                float current = smr.GetBlendShapeWeight(blendShapes[i].index);
+                if (!Mathf.Approximately(blendShapes[i].value, current))
                 {
-                    blendShapes[i].value = smr.GetBlendShapeWeight(blendShapes[i].index);
+                    blendShapes[i].value = current;
+                    changed = true;
                 }
             }
         }
+        return changed;
     }
 
     private void CopyVisibleBlendShapes()

@@ -14,6 +14,23 @@ public partial class VRCBlendShapeEditor : EditorWindow
 
     private void OnGUI()
     {
+        if (Event.current.type == EventType.MouseDown)
+        {
+            isEditingSlider = true;
+            frozenFilterCache.Clear();
+            freezeFilter = true;
+        }
+        else if (Event.current.rawType == EventType.MouseUp)
+        {
+            isEditingSlider = false;
+        }
+
+        if (Event.current.type == EventType.Repaint && GUIUtility.hotControl == 0 && freezeFilter)
+        {
+            freezeFilter = false;
+            frozenFilterCache.Clear();
+        }
+
         if (targetAvatar == null)
         {
             var avatarDescriptors = FindObjectsOfType<VRC.SDK3.Avatars.Components.VRCAvatarDescriptor>();
@@ -192,6 +209,8 @@ public partial class VRCBlendShapeEditor : EditorWindow
             showSelectionCheckboxes = newShowSelectionCheckboxes;
         }
 
+        followLiveValues = EditorGUILayout.ToggleLeft("現在の値に追従", followLiveValues, GUILayout.Width(150));
+
         EditorGUILayout.EndHorizontal();
     }
 
@@ -272,6 +291,28 @@ public partial class VRCBlendShapeEditor : EditorWindow
 
             GUILayout.EndHorizontal();
         }
+
+        EditorGUILayout.Space(5);
+        showToggleMenuSettings = EditorGUILayout.Foldout(showToggleMenuSettings, "Toggleメニュー作成", true, EditorStyles.foldoutHeader);
+
+        if (showToggleMenuSettings)
+        {
+            EditorGUI.indentLevel++;
+
+            toggleMenuName = EditorGUILayout.TextField("メニュー名", toggleMenuName);
+            toggleDefaultOn = EditorGUILayout.Toggle("パラメーター初期値", toggleDefaultOn);
+            toggleSaved = EditorGUILayout.Toggle("パラメーター保存", toggleSaved);
+            toggleSynced = EditorGUILayout.Toggle("パラメーター同期", toggleSynced);
+            toggleAddMAMenuInstaller = EditorGUILayout.Toggle("MA Menu Installerを追加", toggleAddMAMenuInstaller);
+
+            using (new EditorGUI.DisabledScope(GetSelectedCount() == 0))
+            {
+                if (GUILayout.Button($"選択から作成 ({GetSelectedCount()}個)", GUILayout.Height(28)))
+                    CreateToggleMenuFromSelection();
+            }
+
+            EditorGUI.indentLevel--;
+        }
     }
 
     private void DrawBlendShapeList()
@@ -303,6 +344,22 @@ public partial class VRCBlendShapeEditor : EditorWindow
                     GetPathFromRoot(smr.transform)
                     );
 
+                EditorGUILayout.BeginHorizontal();
+
+                if (showSelectionCheckboxes)
+                {
+                    bool? state = GetMeshSelectionState(filteredBlendShapes);
+
+                    EditorGUI.BeginChangeCheck();
+                    EditorGUI.showMixedValue = state == null;
+                    bool newMeshChecked = EditorGUILayout.Toggle(state == true, GUILayout.Width(20));
+                    EditorGUI.showMixedValue = false;
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        SetMeshSelection(filteredBlendShapes, newMeshChecked);
+                    }
+                }
+
                 EditorGUI.BeginChangeCheck();
                 bool newFoldoutState = EditorGUILayout.Foldout(
                     foldoutStates[smr],
@@ -310,11 +367,12 @@ public partial class VRCBlendShapeEditor : EditorWindow
                     true,
                     EditorStyles.foldoutHeader
                 );
-
                 if (EditorGUI.EndChangeCheck())
                 {
                     foldoutStates[smr] = newFoldoutState;
                 }
+
+                EditorGUILayout.EndHorizontal();
 
                 if (foldoutStates[smr])
                 {
